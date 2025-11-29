@@ -54,15 +54,45 @@ exports.getAllOpportunities = async (req, res) => {
   }
 };
 
-// Get opportunity by ID
+// Get opportunity by ID (auto-syncs from SAP CRM if not found)
 exports.getOpportunityById = async (req, res) => {
   try {
-    const opportunity = await Opportunity.findById(req.params.id);
+    const { id } = req.params;
+
+    // First try to find by MongoDB _id
+    let opportunity = await Opportunity.findById(id).catch(() => null);
+
+    // If not found by _id, try by objectID or opportunityID
+    if (!opportunity) {
+      opportunity = await Opportunity.findOne({
+        $or: [
+          { objectID: id },
+          { opportunityID: id }
+        ]
+      });
+    }
+
+    // If still not found, try to fetch from SAP CRM and save
+    if (!opportunity) {
+      console.log(`[API] Opportunity ${id} not in MongoDB, fetching from SAP CRM...`);
+
+      const sapOpportunity = await sapCrmService.fetchOpportunityById(id);
+
+      if (sapOpportunity) {
+        // Save to MongoDB
+        const newOpp = new Opportunity({
+          ...sapOpportunity,
+          source: 'sap_crm'
+        });
+        opportunity = await newOpp.save();
+        console.log(`[API] Synced opportunity ${id} from SAP CRM to MongoDB`);
+      }
+    }
 
     if (!opportunity) {
       return res.status(404).json({
         status: 'error',
-        message: 'Opportunity not found'
+        message: 'Opportunity not found in MongoDB or SAP CRM'
       });
     }
 
@@ -177,15 +207,44 @@ exports.deleteOpportunity = async (req, res) => {
   }
 };
 
-// Get risks for a specific opportunity
+// Get risks for a specific opportunity (auto-syncs from SAP CRM if not found)
 exports.getOpportunityRisks = async (req, res) => {
   try {
-    const opportunity = await Opportunity.findById(req.params.id);
+    const { id } = req.params;
+
+    // First try to find by MongoDB _id
+    let opportunity = await Opportunity.findById(id).catch(() => null);
+
+    // If not found by _id, try by objectID or opportunityID
+    if (!opportunity) {
+      opportunity = await Opportunity.findOne({
+        $or: [
+          { objectID: id },
+          { opportunityID: id }
+        ]
+      });
+    }
+
+    // If still not found, try to fetch from SAP CRM and save
+    if (!opportunity) {
+      console.log(`[API] Opportunity ${id} not in MongoDB, fetching from SAP CRM...`);
+
+      const sapOpportunity = await sapCrmService.fetchOpportunityById(id);
+
+      if (sapOpportunity) {
+        const newOpp = new Opportunity({
+          ...sapOpportunity,
+          source: 'sap_crm'
+        });
+        opportunity = await newOpp.save();
+        console.log(`[API] Synced opportunity ${id} from SAP CRM to MongoDB`);
+      }
+    }
 
     if (!opportunity) {
       return res.status(404).json({
         status: 'error',
-        message: 'Opportunity not found'
+        message: 'Opportunity not found in MongoDB or SAP CRM'
       });
     }
 
