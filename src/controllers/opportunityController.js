@@ -1,5 +1,6 @@
 const Opportunity = require('../models/Opportunity');
 const Risk = require('../models/Risk');
+const Competitor = require('../models/Competitor');
 const sapCrmService = require('../services/sapCrmService');
 
 // Get all opportunities
@@ -257,6 +258,66 @@ exports.getOpportunityRisks = async (req, res) => {
         opportunity,
         risks,
         riskCount: risks.length
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: error.message
+    });
+  }
+};
+
+// Get competitors for a specific opportunity (auto-syncs from SAP CRM if not found)
+exports.getOpportunityCompetitors = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // First try to find by MongoDB _id
+    let opportunity = await Opportunity.findById(id).catch(() => null);
+
+    // If not found by _id, try by objectID or opportunityID
+    if (!opportunity) {
+      opportunity = await Opportunity.findOne({
+        $or: [
+          { objectID: id },
+          { opportunityID: id }
+        ]
+      });
+    }
+
+    // If still not found, try to fetch from SAP CRM and save
+    if (!opportunity) {
+      console.log(`[API] Opportunity ${id} not in MongoDB, fetching from SAP CRM...`);
+
+      const sapOpportunity = await sapCrmService.fetchOpportunityById(id);
+
+      if (sapOpportunity) {
+        const newOpp = new Opportunity({
+          ...sapOpportunity,
+          source: 'sap_crm'
+        });
+        opportunity = await newOpp.save();
+        console.log(`[API] Synced opportunity ${id} from SAP CRM to MongoDB`);
+      }
+    }
+
+    if (!opportunity) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Opportunity not found in MongoDB or SAP CRM'
+      });
+    }
+
+    const competitors = await Competitor.find({ opportunityID: opportunity.opportunityID })
+      .sort('-createdAt');
+
+    res.json({
+      status: 'success',
+      data: {
+        opportunity,
+        competitors,
+        competitorCount: competitors.length
       }
     });
   } catch (error) {
